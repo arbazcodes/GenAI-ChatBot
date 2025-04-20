@@ -1,0 +1,49 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+.env.*  # Includes .env.development, .env.production, etc.
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Dependency directories
+jspm_packages/
+
+# Build output
+dist/
+build/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Test coverage
+coverage/
+
+# Misc
+*.local
+*.tgz
+
+# Optional npm cache directory
+.npm/
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+__pycache__
+__pycache__/
