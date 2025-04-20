@@ -66,3 +66,25 @@ code[class*="language-"] {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+/* src/App.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+/* Enhanced code block styling */
+pre[class*="language-"] {
+  border-radius: 12px !important;
+  padding: 1.5rem !important;
+  margin: 1.5rem 0 !important;
+  background: #2d2d2d !important;
+}
+
+code[class*="language-"] {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.9rem !important;
+  line-height: 1.5 !important;
+}
