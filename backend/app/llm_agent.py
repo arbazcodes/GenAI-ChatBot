@@ -1,4 +1,3 @@
-# backend/app/llm_agent.py
 import os
 import openai
 import logging
@@ -12,20 +11,28 @@ def get_sql_query(question: str) -> dict:
     try:
         schema = get_schema_context()
         prompt = f"""
-You are an AI assistant that generates PostgreSQL SELECT queries using the following database schema:
-{schema}
+You are an expert that generates PostgreSQL SELECT queries to answer a user's questions for a particular databse. 
+I will give you the user's question and the schema of the database.
+Understand the user's question.
+Identify the relavant tables and their relations.
+Generate only a valid SELECT query.
+Only give the valid SELECT query as your answer.
+Be carefull and generate an accurate and valid query.
 
 User Question: "{question}"
 
-Generate only a valid SELECT query.
+Database Schema:
+{schema}
 """
         logger.info("Sending prompt to OpenAI for SQL generation.")
+        print(prompt)
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
         )
         sql = response.choices[0].message["content"].strip().replace("```sql", "").replace("```", "")
+        print(sql)
         logger.info("SQL query generated successfully.")
         return {"status": "success", "sql_query": sql}
     except Exception as e:
@@ -37,7 +44,7 @@ def get_generic_response(question: str) -> dict:
     try:
         prompt = f"Friendly response to: {question}"
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.6,
         )

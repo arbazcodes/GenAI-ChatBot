@@ -1,9 +1,9 @@
-# backend/app/db_runner.py
 import os
 import re
 import pandas as pd
 from sqlalchemy import create_engine, text
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -28,7 +28,11 @@ def run_query(sql: str) -> dict:
     try:
         with engine.connect() as conn:
             df = pd.read_sql(text(sql), con=conn)
-        result = df.head(10).to_dict(orient="records")
+        
+        # Convert DataFrame to JSON with ISO dates and parse back to Python objects
+        json_str = df.head(10).to_json(orient="records", date_format="iso")
+        result = json.loads(json_str)
+        
         logger.info("SQL query executed successfully.")
         return {
             "status": "success",

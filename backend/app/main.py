@@ -1,5 +1,4 @@
-# backend/app/main.py
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket
 from pydantic import BaseModel
 import json
 import logging
@@ -9,41 +8,6 @@ from .db_runner import run_query
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
-
-class QueryRequest(BaseModel):
-    message: str
-    mode: str  # 'general' or 'company'
-
-@app.post("/api/message")
-async def chat_endpoint(query: QueryRequest):
-    try:
-        if query.mode == "company":
-            sql_result = get_sql_query(query.message)
-            if sql_result["status"] == "error":
-                return {"status": "error", "message": sql_result["message"]}
-
-            query_result = run_query(sql_result["sql_query"])
-            if query_result["status"] == "error":
-                return {"status": "error", "message": query_result["message"]}
-
-            detailed = get_detailed_answer(
-                query.message,
-                sql_result["sql_query"],
-                query_result["data"]
-            )
-            return {
-                "status": "success",
-                "sql_query": sql_result["sql_query"],
-                "query_result": query_result["data"],
-                "llm_response": detailed["llm_response"]
-            }
-        else:
-            response = get_generic_response(query.message)
-            return response
-    except Exception as e:
-        logger.error(f"Error processing message: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error.")
-
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -55,6 +19,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 data_json = json.loads(data)
                 message = data_json.get("message")
                 mode = data_json.get("mode", "general")
+
+                response_data = {
+                    "message": message,
+                    "mode": mode,
+                    "sql_query": None,
+                    "query_result": None,
+                    "llm_response": None
+                }
 
                 if mode == "company":
                     sql_result = get_sql_query(message)
@@ -70,21 +42,39 @@ async def websocket_endpoint(websocket: WebSocket):
                         sql_result["sql_query"],
                         query_result["data"]
                     )
-                    await websocket.send_text(json.dumps({
-                        "status": "success",
+
+                    response_data.update({
                         "sql_query": sql_result["sql_query"],
                         "query_result": query_result["data"],
                         "llm_response": detailed["llm_response"]
+                    })
+
+                    await websocket.send_text(json.dumps({
+                        "status": "success",
+                        "data": response_data,
+                        "error": None
                     }))
                 else:
-                    response = get_generic_response(message)
-                    await websocket.send_text(json.dumps(response))
+                    generic_response = get_generic_response(message)
+                    response_data["llm_response"] = generic_response.get("llm_response", "")
+                    await websocket.send_text(json.dumps({
+                        "status": "success",
+                        "data": response_data,
+                        "error": None
+                    }))
 
             except Exception as e:
                 logger.error(f"WebSocket request error: {e}")
                 await websocket.send_text(json.dumps({
                     "status": "error",
-                    "message": str(e)
+                    "data": {
+                        "message": message if 'message' in locals() else "",
+                        "mode": mode if 'mode' in locals() else "general",
+                        "sql_query": None,
+                        "query_result": None,
+                        "llm_response": None
+                    },
+                    "error": str(e)
                 }))
     finally:
         await websocket.close()

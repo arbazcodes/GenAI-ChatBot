@@ -51,30 +51,35 @@ function App() {
 
   useEffect(() => {
     ws.current = new ReconnectingWebSocket('ws://localhost:8000/ws');
+
     ws.current.onmessage = (event) => {
       const response = JSON.parse(event.data);
 
       if (response.status === "error") {
         setMessages(prev => [...prev, {
           type: 'bot',
-          content: `Error: ${response.message || 'Unknown error occurred'}`,
+          content: `Error: ${response.error || 'Unknown error occurred'}`,
           isError: true
         }]);
         setIsLoading(false);
         return;
       }
 
+      const { message, mode, sql_query, query_result, llm_response } = response.data || {};
+
       setMessages(prev => [...prev, {
         type: 'bot',
-        content: response.llm_response || response.response,
-        sql: response.sql_query,
-        result: response.query_result,
-        rawData: response.query_result
+        content: llm_response || 'No response generated.',
+        sql: sql_query,
+        result: query_result,
+        rawData: query_result
       }]);
+
       setIsLoading(false);
     };
 
     Prism.highlightAll();
+
     return () => ws.current.close();
   }, []);
 
