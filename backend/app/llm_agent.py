@@ -1,29 +1,32 @@
 import os
 import openai
 import logging
-from .schema_reader import get_schema_context
+from dotenv import load_dotenv
+from .schema_reader import get_schema_context_with_data
+
 
 logger = logging.getLogger(__name__)
+load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 def get_sql_query(question: str) -> dict:
     try:
-        schema = get_schema_context()
+        schema = get_schema_context_with_data()
         prompt = f"""
-You are an expert that generates PostgreSQL SELECT queries to answer a user's questions for a particular databse. 
-I will give you the user's question and the schema of the database.
-Understand the user's question.
-Identify the relavant tables and their relations.
-Generate only a valid SELECT query.
-Only give the valid SELECT query as your answer.
-Be carefull and generate an accurate and valid query.
+                You are an expert in PostgreSQL. Generate valid and optimized SELECT queries.
 
-User Question: "{question}"
+                Schema details with example values are given below. Use these carefully to ensure value matching (case-sensitive strings like 'TAILGATING' are common).
 
-Database Schema:
-{schema}
-"""
+                DO NOT guess column values—use only those shown in the schema description. 
+
+                Return ONLY the final SQL query.
+
+                User Question: "{question}"
+
+                Database Schema:
+                {schema}
+                    """
         logger.info("Sending prompt to OpenAI for SQL generation.")
         print(prompt)
         response = openai.ChatCompletion.create(
@@ -68,6 +71,8 @@ Query Result:
 
 Answer the user's question:
 "{question}"
+
+Only give short summary/analysis as your answer.
 """
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",

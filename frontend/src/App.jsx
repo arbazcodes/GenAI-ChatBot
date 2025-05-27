@@ -1,231 +1,184 @@
-// src/App.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Box, Container, TextField, IconButton, ToggleButtonGroup, ToggleButton,
-  Typography, Paper, CircularProgress, Divider, styled, useTheme 
+import {
+  Box, Container, TextField, IconButton, ToggleButtonGroup,
+  ToggleButton, Typography, Paper, CircularProgress, Divider, Button
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StorageIcon from '@mui/icons-material/Storage';
 import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
 import ReconnectingWebSocket from 'reconnecting-websocket';
+
 import MessageBubble from './components/MessageBubble';
 import SqlResultTable from './components/SqlResultTable';
 import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
 import './App.css';
 
-const StyledToggleButtonGroup = styled(ToggleButtonGroup)(({ theme }) => ({
-  margin: '10px 0',
-  borderRadius: '8px',
-  overflow: 'hidden',
-  width: '100%',
-  '& .MuiToggleButton-root': {
-    flex: 1,
-    border: 'none',
-    borderRadius: 0,
-    padding: '8px 12px',
-    textTransform: 'none',
-    fontWeight: 500,
-    fontSize: '0.9rem',
-    transition: 'all 0.3s ease',
-    color: theme.palette.text.secondary,
-    backgroundColor: '#f1f5f9',
-    '&.Mui-selected': {
-      backgroundColor: theme.palette.primary.main,
-      color: theme.palette.primary.contrastText,
-    },
-    '&:hover': {
-      backgroundColor: '#e2e8f0',
-    },
-  }
-}));
-
 function App() {
+  // DB config state
+  const [dbUrl, setDbUrl] = useState('');
+  const [dbConfigured, setDbConfigured] = useState(false);
+
+  // Chat state
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isCompanyMode, setIsCompanyMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
   const ws = useRef(null);
   const messagesEndRef = useRef(null);
-  const theme = useTheme();
 
+  // only initialise WS once DB is configured
   useEffect(() => {
+    if (!dbConfigured) return;
+
     ws.current = new ReconnectingWebSocket('ws://localhost:8000/ws');
 
     ws.current.onmessage = (event) => {
       const response = JSON.parse(event.data);
-
       if (response.status === "error") {
         setMessages(prev => [...prev, {
           type: 'bot',
-          content: `Error: ${response.error || 'Unknown error occurred'}`,
+          content: `Error: ${response.error}`,
           isError: true
         }]);
         setIsLoading(false);
         return;
       }
 
-      const { message, mode, sql_query, query_result, llm_response } = response.data || {};
-
+      const { sql_query, query_result, llm_response } = response.data;
       setMessages(prev => [...prev, {
         type: 'bot',
-        content: llm_response || 'No response generated.',
+        content: llm_response || 'No response.',
         sql: sql_query,
-        result: query_result,
         rawData: query_result
       }]);
-
       setIsLoading(false);
     };
 
     Prism.highlightAll();
-
-    return () => ws.current.close();
-  }, []);
+    return () => ws.current && ws.current.close();
+  }, [dbConfigured]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     Prism.highlightAll();
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleSend = () => {
     if (!inputMessage.trim()) return;
-
     setMessages(prev => [...prev, { type: 'user', content: inputMessage }]);
     setIsLoading(true);
-
     ws.current.send(JSON.stringify({
       message: inputMessage,
       mode: isCompanyMode ? 'company' : 'general'
     }));
-
     setInputMessage('');
   };
 
+  const handleConfigure = async () => {
+    try {
+      const resp = await fetch('/configure-database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ database_url: dbUrl })
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || 'Configuration failed');
+      }
+      setDbConfigured(true);
+    } catch (e) {
+      alert(`Failed to configure database: ${e.message}`);
+    }
+  };
+
+  // ** If not configured, show DB config form **
+  if (!dbConfigured) {
+    return (
+      <Container maxWidth="sm" sx={{ mt: 8 }}>
+        <Paper sx={{ p: 4 }}>
+          <Typography variant="h6" gutterBottom>
+            Configure Database
+          </Typography>
+          <TextField
+            fullWidth
+            label="Database URL"
+            placeholder="postgresql://user:pass@host:port/dbname"
+            value={dbUrl}
+            onChange={e => setDbUrl(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+          <Button variant="contained" onClick={handleConfigure}>
+            Connect
+          </Button>
+        </Paper>
+      </Container>
+    );
+  }
+
+  // ** Once configured, show chat UI **
   return (
-    <Container disableGutters maxWidth={false} sx={{ 
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100dvh',
-      backgroundColor: '#f8fafc',
+    <Container disableGutters maxWidth={false} sx={{
+      display: 'flex', flexDirection: 'column', height: '100dvh', backgroundColor: '#f8fafc'
     }}>
-      {/* Mode Toggle Header */}
-      <Box sx={{ 
-        px: { xs: 2, sm: 4 }, py: 1.5,
-        backgroundColor: 'white',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-      }}>
-        <StyledToggleButtonGroup
+      {/* mode toggle */}
+      <Box sx={{ px: 4, py: 1.5, backgroundColor: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+        <ToggleButtonGroup
           value={isCompanyMode ? 'company' : 'general'}
-          exclusive
-          onChange={(e, newMode) => {
-            if (newMode !== null) setIsCompanyMode(newMode === 'company');
-          }}
+          exclusive onChange={(e,val)=> val!==null && setIsCompanyMode(val==='company')}
         >
           <ToggleButton value="general">
-            <ChatBubbleIcon sx={{ fontSize: 18, mr: 1 }} />
-            <Typography variant="body2">General Chat</Typography>
+            <ChatBubbleIcon sx={{ mr:1 }} /><Typography>General Chat</Typography>
           </ToggleButton>
           <ToggleButton value="company">
-            <StorageIcon sx={{ fontSize: 18, mr: 1 }} />
-            <Typography variant="body2">Database Mode</Typography>
+            <StorageIcon sx={{ mr:1 }} /><Typography>Database Mode</Typography>
           </ToggleButton>
-        </StyledToggleButtonGroup>
+        </ToggleButtonGroup>
       </Box>
 
-      {/* Messages */}
-      <Box sx={{ 
-        flex: 1,
-        overflowY: 'auto',
-        px: { xs: 2, sm: 4 },
-        py: 2,
-        '&::-webkit-scrollbar': { width: '6px' },
-        '&::-webkit-scrollbar-thumb': { bgcolor: '#cbd5e1', borderRadius: 4 },
-      }}>
-        {messages.map((msg, index) => (
-          <Box key={index} sx={{ mb: 2 }}>
+      {/* messages */}
+      <Box sx={{ flex:1, overflowY:'auto', px:4, py:2 }}>
+        {messages.map((msg,i)=>(
+          <Box key={i} sx={{ mb:2 }}>
             <MessageBubble type={msg.type} isError={msg.isError}>
-              <Box sx={{ px: 1.5, pt: 1 }}>
-                {formatResponse(msg.content)}
-              </Box>
-
-              {msg.sql && (
-                <>
-                  <Divider sx={{ my: 2 }} />
-                  <Paper sx={{ 
-                    p: 1.5,
-                    bgcolor: '#2d2d2d',
-                    color: '#dcdcdc',
-                    borderRadius: '8px',
-                    overflow: 'auto'
-                  }}>
-                    <pre style={{ margin: 0, fontSize: '0.85rem' }}>
-                      <code className="language-sql">{msg.sql}</code>
-                    </pre>
-                  </Paper>
-                </>
-              )}
-
-              {msg.rawData && (
-                <>
-                  <Divider sx={{ my: 2 }} />
-                  <SqlResultTable data={msg.rawData} />
-                </>
-              )}
+              {msg.content}
             </MessageBubble>
+            {msg.sql && (
+              <>
+                <Divider sx={{ my:1 }} />
+                <Paper sx={{ p:1.5, bgcolor:'#2d2d2d', color:'#dcdcdc', borderRadius:1 }}>
+                  <pre style={{ margin:0 }}><code className="language-sql">{msg.sql}</code></pre>
+                </Paper>
+              </>
+            )}
+            {msg.rawData && (
+              <>
+                <Divider sx={{ my:1 }} />
+                <SqlResultTable data={msg.rawData} />
+              </>
+            )}
           </Box>
         ))}
-
         {isLoading && (
           <MessageBubble type="bot">
-            <Box sx={{ px: 2, py: 1 }}>
-              <CircularProgress size={20} sx={{ color: '#64748b' }} />
-            </Box>
+            <CircularProgress size={20} sx={{ color:'#64748b' }}/>
           </MessageBubble>
         )}
-
         <div ref={messagesEndRef} />
       </Box>
 
-      {/* Input */}
-      <Box sx={{ 
-        p: { xs: 1.5, sm: 2 },
-        backgroundColor: 'white',
-        boxShadow: '0 -1px 4px rgba(0,0,0,0.05)'
-      }}>
+      {/* input */}
+      <Box sx={{ p:2, backgroundColor:'white', boxShadow:'0 -1px 4px rgba(0,0,0,0.05)' }}>
         <TextField
-          fullWidth
-          variant="outlined"
-          value={inputMessage}
-          onChange={(e) => setInputMessage(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          fullWidth variant="outlined"
+          value={inputMessage} onChange={e=>setInputMessage(e.target.value)}
+          onKeyDown={e=> e.key==='Enter' && handleSend()}
           placeholder="Type your message..."
-          size="small"
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              borderRadius: '8px',
-              fontSize: '0.95rem',
-              '& fieldset': { borderColor: '#e2e8f0' },
-              '&:hover fieldset': { borderColor: '#cbd5e1' },
-              '&.Mui-focused fieldset': { borderColor: '#3b82f6' }
-            }
-          }}
           InputProps={{
             endAdornment: (
-              <IconButton 
-                onClick={handleSend} 
-                size="small"
-                sx={{ 
-                  color: '#3b82f6',
-                  ml: 1,
-                  '&:hover': { 
-                    backgroundColor: '#e0f2fe',
-                    transform: 'scale(1.1)'
-                  },
-                  transition: 'transform 0.2s ease'
-                }}
-              >
-                <SendIcon fontSize="small" />
+              <IconButton onClick={handleSend}>
+                <SendIcon />
               </IconButton>
             )
           }}
@@ -233,25 +186,6 @@ function App() {
       </Box>
     </Container>
   );
-}
-
-function formatResponse(text) {
-  if (!text) return null;
-  
-  return text.split('\n\n').map((paragraph, pIndex) => (
-    <p key={pIndex} style={{ margin: '4px 0', lineHeight: 1.6 }}>
-      {paragraph.split(/(\*\*.*?\*\*)/g).map((part, index) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-          return <strong key={index} style={{ 
-            color: '#3b82f6',
-            fontWeight: 500,
-            padding: '0 2px'
-          }}>{part.slice(2, -2)}</strong>;
-        }
-        return part;
-      })}
-    </p>
-  ));
 }
 
 export default App;

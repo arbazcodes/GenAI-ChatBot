@@ -1,52 +1,75 @@
 import os
-from sqlalchemy import create_engine, MetaData, inspect
+from sqlalchemy import MetaData, inspect
 from sqlalchemy.ext.automap import automap_base, generate_relationship
-from dotenv import load_dotenv
 
-load_dotenv()
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-engine = create_engine(DATABASE_URL)
+# Defer engine creation until after configure_database() is called
+engine = None
 metadata = MetaData()
 Base = automap_base(metadata=metadata)
 
 def _gen_relationship(base, direction, return_fn, attrname, local_cls, referred_cls, **kw):
-    # Get all column names for the local class
+    """Custom relationship namer to avoid column conflicts."""
     column_names = {c.name for c in local_cls.__table__.columns}
-    
-    # Check for column name conflicts
     if attrname in column_names:
-        new_attrname = f"{attrname}_rel"
-        return generate_relationship(
-            base, direction, return_fn, new_attrname, local_cls, referred_cls, **kw
-        )
-    return generate_relationship(
-        base, direction, return_fn, attrname, local_cls, referred_cls, **kw
+        attrname = f"{attrname}_rel"
+    return generate_relationship(base, direction, return_fn, attrname, local_cls, referred_cls, **kw)
+
+def init_schema(reflect_engine):
+    """
+    Reflect the database schema into ORM classes.
+    Must be called once after engine is configured.
+    """
+    global engine
+    engine = reflect_engine
+    metadata.bind = engine
+    Base.prepare(
+        engine,
+        reflect=True,
+        generate_relationship=_gen_relationship,
+        classname_for_table=lambda base, tablename, table: tablename,
+        name_for_scalar_relationship=lambda base, local, remote, fk: f"{remote.__name__.lower()}_rel",
+        name_for_collection_relationship=lambda base, local, remote, fk: f"{remote.__name__.lower()}_rels"
     )
 
-Base.prepare(
-    engine,
-    reflect=True,
-    generate_relationship=_gen_relationship,
-    classname_for_table=lambda cls, tablename, table: tablename,
-    name_for_scalar_relationship=lambda base, local_cls, referred_cls, constraint: f"{referred_cls.__name__.lower()}_rel",
-    name_for_collection_relationship=lambda base, local_cls, referred_cls, constraint: f"{referred_cls.__name__.lower()}_rels"
-)
-
-def init_schema():
-    pass
-
 def get_schema_context() -> str:
-    schema_lines = []
+    """
+    Return DDL-like lines describing tables and columns.
+    """
+    if engine is None:
+        raise RuntimeError("Schema not initialized. Call init_schema() first.")
     inspector = inspect(engine)
-    
+    lines = []
     for table_name in inspector.get_table_names():
-        columns = inspector.get_columns(table_name)
-        column_list = ", ".join([f"{col['name']} ({col['type']})" for col in columns])
-        schema_lines.append(f"Table: {table_name} -> {column_list}")
-    
-    return "\n".join(schema_lines)
+        cols = inspector.get_columns(table_name)
+        col_desc = ", ".join(f"{c['name']} ({c['type']})" for c in cols)
+        lines.append(f"Table: {table_name} -> {col_desc}")
+    return "\n".join(lines)
 
-def get_table_names() -> list:
+def get_schema_context_with_data() -> str:
+    """
+    Like get_schema_context but includes up to 10 distinct example values
+    for VARCHAR/TEXT columns.
+    """
+    if engine is None:
+        raise RuntimeError("Schema not initialized. Call init_schema() first.")
+    from sqlalchemy.sql import text
     inspector = inspect(engine)
-    return inspector.get_table_names()
+    lines = []
+    for table in inspector.get_table_names():
+        cols = inspector.get_columns(table)
+        parts = []
+        for col in cols:
+            desc = f"{col['name']} ({col['type']})"
+            typ = str(col['type'])
+            if typ.startswith("VARCHAR") or typ == "TEXT":
+                try:
+                    q = text(f"SELECT DISTINCT {col['name']} FROM {table} LIMIT 10")
+                    with engine.connect() as conn:
+                        vals = [row[0] for row in conn.execute(q)]
+                    if vals:
+                        desc += f" -> Example Values: {vals}"
+                except Exception:
+                    pass
+            parts.append(desc)
+        lines.append(f"Table: {table} -> {', '.join(parts)}")
+    return "\n".join(lines)
