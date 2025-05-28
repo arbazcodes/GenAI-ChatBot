@@ -4,7 +4,7 @@ from sqlalchemy.ext.automap import automap_base, generate_relationship
 
 # Defer engine creation until after configure_database() is called
 engine = None
-metadata = MetaData()
+metadata = MetaData(schema="public")
 Base = automap_base(metadata=metadata)
 
 def _gen_relationship(base, direction, return_fn, attrname, local_cls, referred_cls, **kw):
@@ -25,6 +25,7 @@ def init_schema(reflect_engine):
     Base.prepare(
         engine,
         reflect=True,
+        schema="public",  # <-- limit reflection to public schema
         generate_relationship=_gen_relationship,
         classname_for_table=lambda base, tablename, table: tablename,
         name_for_scalar_relationship=lambda base, local, remote, fk: f"{remote.__name__.lower()}_rel",
@@ -39,8 +40,8 @@ def get_schema_context() -> str:
         raise RuntimeError("Schema not initialized. Call init_schema() first.")
     inspector = inspect(engine)
     lines = []
-    for table_name in inspector.get_table_names():
-        cols = inspector.get_columns(table_name)
+    for table_name in inspector.get_table_names(schema="public"):
+        cols = inspector.get_columns(table_name, schema="public")
         col_desc = ", ".join(f"{c['name']} ({c['type']})" for c in cols)
         lines.append(f"Table: {table_name} -> {col_desc}")
     return "\n".join(lines)
@@ -55,15 +56,15 @@ def get_schema_context_with_data() -> str:
     from sqlalchemy.sql import text
     inspector = inspect(engine)
     lines = []
-    for table in inspector.get_table_names():
-        cols = inspector.get_columns(table)
+    for table in inspector.get_table_names(schema="public"):
+        cols = inspector.get_columns(table, schema="public")
         parts = []
         for col in cols:
             desc = f"{col['name']} ({col['type']})"
             typ = str(col['type'])
             if typ.startswith("VARCHAR") or typ == "TEXT":
                 try:
-                    q = text(f"SELECT DISTINCT {col['name']} FROM {table} LIMIT 10")
+                    q = text(f'SELECT DISTINCT "{col["name"]}" FROM "public"."{table}" LIMIT 10')
                     with engine.connect() as conn:
                         vals = [row[0] for row in conn.execute(q)]
                     if vals:

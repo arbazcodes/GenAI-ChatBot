@@ -1,5 +1,6 @@
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel
+from starlette.websockets import WebSocketState
 import json
 import logging
 
@@ -22,6 +23,7 @@ def configure_db(config: DBConfig):
         raise HTTPException(status_code=400, detail=result["message"])
     return {"status": "success", "message": result["message"]}
 
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -40,41 +42,54 @@ async def websocket_endpoint(websocket: WebSocket):
                 "llm_response": None
             }
 
-            if mode == "company":
-                # generate SQL
-                sql_res = get_sql_query(msg)
-                if sql_res["status"] != "success":
-                    raise Exception(sql_res.get("message", "SQL gen failed"))
-                sql = sql_res["sql_query"]
+            try:
+                if mode == "company":
+                    # generate SQL
+                    sql_res = get_sql_query(msg)
+                    if sql_res["status"] != "success":
+                        raise Exception(sql_res.get("message", "SQL generation failed"))
+                    sql = sql_res["sql_query"]
 
-                # run against DB
-                qr = run_query(sql)
-                if qr["status"] != "success":
-                    raise Exception(qr.get("message", "Query failed"))
+                    # run against DB
+                    qr = run_query(sql)
+                    if qr["status"] != "success":
+                        raise Exception(qr.get("message", "Query execution failed"))
 
-                # ask LLM to summarize
-                det = get_detailed_answer(msg, sql, qr["data"])
-                response.update({
-                    "sql_query": sql,
-                    "query_result": qr["data"],
-                    "llm_response": det.get("llm_response", "")
-                })
-            else:
-                # general chat
-                gen = get_generic_response(msg)
-                response["llm_response"] = gen.get("response", "")
+                    # ask LLM to summarize
+                    det = get_detailed_answer(msg, sql, qr["data"])
+                    response.update({
+                        "sql_query": sql,
+                        "query_result": qr["data"],
+                        "llm_response": det.get("llm_response", "")
+                    })
 
-            await websocket.send_text(json.dumps({
-                "status": "success",
-                "data": response,
-                "error": None
-            }))
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        await websocket.send_text(json.dumps({
-            "status": "error",
-            "data": response,
-            "error": str(e)
-        }))
+                else:
+                    # general chat
+                    gen = get_generic_response(msg)
+                    response["llm_response"] = gen.get("response", "")
+
+                if websocket.application_state == WebSocketState.CONNECTED:
+                    await websocket.send_text(json.dumps({
+                        "status": "success",
+                        "data": response,
+                        "error": None
+                    }))
+
+            except Exception as inner_e:
+                logger.error(f"Processing error: {inner_e}")
+                if websocket.application_state == WebSocketState.CONNECTED:
+                    await websocket.send_text(json.dumps({
+                        "status": "error",
+                        "data": response,
+                        "error": str(inner_e)
+                    }))
+
+    except WebSocketDisconnect as disconnect_e:
+        logger.info(f"WebSocket disconnected: {disconnect_e.code}")
+
+    except Exception as outer_e:
+        logger.error(f"Unexpected WebSocket error: {outer_e}")
+
     finally:
-        await websocket.close()
+        if websocket.application_state != WebSocketState.DISCONNECTED:
+            await websocket.close()
