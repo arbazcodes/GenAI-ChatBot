@@ -16,9 +16,9 @@ def get_sql_query(question: str) -> dict:
         prompt = f"""
                 You are an expert in PostgreSQL. Generate valid and optimized SELECT queries.
 
-                Schema details with example values are given below. Use these carefully to ensure value matching (case-sensitive strings like 'TAILGATING' are common).
+                Schema details are given below. Use these carefully to ensure value matching (case-sensitive strings are common).
 
-                DO NOT guess column values—use only those shown in the schema description. 
+                DO NOT guess tables or columns. Use only those shown in the schema description. 
 
                 Return ONLY the final SQL query.
 

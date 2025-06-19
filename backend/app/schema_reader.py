@@ -48,12 +48,10 @@ def get_schema_context() -> str:
 
 def get_schema_context_with_data() -> str:
     """
-    Like get_schema_context but includes up to 10 distinct example values
-    for VARCHAR/TEXT columns.
+    Like get_schema_context but excludes example values.
     """
     if engine is None:
         raise RuntimeError("Schema not initialized. Call init_schema() first.")
-    from sqlalchemy.sql import text
     inspector = inspect(engine)
     lines = []
     for table in inspector.get_table_names(schema="public"):
@@ -61,16 +59,7 @@ def get_schema_context_with_data() -> str:
         parts = []
         for col in cols:
             desc = f"{col['name']} ({col['type']})"
-            typ = str(col['type'])
-            if typ.startswith("VARCHAR") or typ == "TEXT":
-                try:
-                    q = text(f'SELECT DISTINCT "{col["name"]}" FROM "public"."{table}" LIMIT 10')
-                    with engine.connect() as conn:
-                        vals = [row[0] for row in conn.execute(q)]
-                    if vals:
-                        desc += f" -> Example Values: {vals}"
-                except Exception:
-                    pass
             parts.append(desc)
         lines.append(f"Table: {table} -> {', '.join(parts)}")
     return "\n".join(lines)
+
